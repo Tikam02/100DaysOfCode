@@ -3,8 +3,7 @@
 <h2>How to Transmit Data</h2>
 <p>First, this is a path used to transmit data when an application calls the write system call.</p><br>
 <hr>
-<p><strong>
-SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf, ...)
+<![CDATA[SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf, ...)
  
 {
  
@@ -44,7 +43,5 @@ static const struct file_operations socket_file_ops = {
  
 [...]
  
-};
-
-</strong></p>
+};>]]>
 <hr>
