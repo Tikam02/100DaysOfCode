@@ -118,3 +118,112 @@ int (*recvmsg) (struct kiocb *iocb, struct socket *sock, ...)
  
 };
 </pre>
+<hr>
+<p>
+
+The <strong>sock_aio_write()</strong> function gets the socket structure from the file and then calls sendmsg. It is also the function pointer. The socket structure includes the <strong>proto_ops</strong> function table. The proto_ops implemented by the IPv4 TCP is inet_stream_ops and the sendmsg is implemented by tcp_sendmsg.</p>
+<hr>
+<pre>
+int tcp_sendmsg(struct kiocb *iocb, struct socket *sock,
+ 
+struct msghdr *msg, size_t size)
+ 
+{
+ 
+struct sock *sk = sock->sk;
+ 
+struct iovec *iov;
+ 
+struct tcp_sock *tp = tcp_sk(sk);
+ 
+struct sk_buff *skb;
+ 
+[...]
+ 
+mss_now = tcp_send_mss(sk, &size_goal, flags);
+ 
+ 
+ 
+/* Ok commence sending. */
+ 
+iovlen = msg->msg_iovlen;
+ 
+iov = msg->msg_iov;
+ 
+copied = 0;
+ 
+[...]
+ 
+while (--iovlen >= 0) {
+ 
+int seglen = iov->iov_len;
+ 
+unsigned char __user *from = iov->iov_base;
+ 
+ 
+ 
+iov++;
+ 
+while (seglen > 0) {
+ 
+int copy = 0;
+ 
+int max = size_goal;
+ 
+[...]
+ 
+skb = sk_stream_alloc_skb(sk,
+ 
+select_size(sk, sg),
+ 
+sk->sk_allocation);
+ 
+if (!skb)
+ 
+goto wait_for_memory;
+ 
+/*
+ 
+* Check whether we can use HW checksum.
+ 
+*/
+ 
+if (sk->sk_route_caps & NETIF_F_ALL_CSUM)
+ 
+skb->ip_summed = CHECKSUM_PARTIAL;
+ 
+[...]
+ 
+skb_entail(sk, skb);
+ 
+[...]
+ 
+/* Where to copy to? */
+ 
+if (skb_tailroom(skb) > 0) {
+ 
+/* We have some space in skb head. Superb! */
+ 
+if (copy > skb_tailroom(skb))
+ 
+copy = skb_tailroom(skb);
+ 
+if ((err = skb_add_data(skb, from, copy)) != 0)
+ 
+goto do_fault;
+ 
+[...]
+ 
+if (copied)
+ 
+tcp_push(sk, flags, mss_now, tp->nonagle);
+ 
+[...]
+ 
+}
+</pre>
+<hr>
+tcp_sengmsg gets tcp_sock (i.e.,TCP control block) from the socket and copies the data that the application has requested to transmit to the send socket buffer. When copying data to sk_buff, how many bytes will one sk_buff include? One sk_buff copies and includes MSS (tcp_send_mss) bytes to help the code that actually creates packets. Maximum Segment Size (MSS) stands for the maximum payload size that one TCP packet includes. By using TSO and GSO, one sk_buff can save more data than MSS. This will be discussed later, not in this document.<br>
+
+The sk_stream_alloc_skb function creates a new sk_buff, and skb_entail adds the new sk_buff to the tail of the send_socket_buffer. The skb_add_data function copies the actual application data to the data buffer of the sk_buff. All the data is copied by repeating the procedure (creating an sk_buff and adding it to the send socket buffer) several times. Therefore, sk_buffs at the size of the MSS are in the send socket buffer as a list. Finally, the tcp_push is called to make the data which can be transmitted now as a packet, and the packet is sent.
+<hr>
