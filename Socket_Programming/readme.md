@@ -652,10 +652,299 @@ static struct packet_type ip_packet_type __read_mostly = {
 </pre>
 <hr>
 <p>
-As mentioned before, the net_rx_action function is the softirq handler that receives a packet. First, the driver that has requested the napi poll is retrieved from the poll_list and the poll handler of the driver is called. The driver wraps the received packet with sk_buff and then calls netif_receive_skb.<br>
+As mentioned before, the <b>net_rx_action</b> function is the softirq handler that receives a packet. First, the driver that has requested the napi poll is retrieved from the <b>poll_list</b> and the poll handler of the driver is called. The driver wraps the received packet with <b>sk_buff</b> and then calls <b>netif_receive_skb</b>.<br>
 
-When there is a module that requests all packets, the netif_receive_skb sends packets to the module. Like packet transmission, the packets are transmitted to the module registered to the ptype_all list. The packets are captured here.
+When there is a module that requests all packets, the <b>netif_receive_skb</b> sends packets to the module. Like packet transmission, the packets are transmitted to the module registered to the <b>ptype_all</b> list. The packets are captured here.
 <br>
-Then, the packets are transmitted to the upper layer based on the packet type. The Ethernet packet includes 2-byte ethertype field in the header. The value indicates the packet type. The driver records the value in sk_buff (skb->protocol). Each protocol has its own packet_type structure and registers the pointer of the structure to the ptype_base hash table. IPv4 uses ip_packet_type. The Type field value is the IPv4 ethertype (ETH_P_IP) value. Therefore, the IPv4 packet calls the ip_rcv function.
-<br>
+Then, the packets are transmitted to the upper layer based on the packet type. The Ethernet packet includes 2-byte ethertype field in the header. The value indicates the packet type. The driver records the value in <b>sk_buff (skb->protocol)</b>. Each protocol has its own packet_type structure and registers the pointer of the structure to the <b>ptype_base</b> hash table. IPv4 uses <b>ip_packet_type</b>. The Type field value is the IPv4 ethertype (ETH_P_IP) value. Therefore, the IPv4 packet calls the <b>ip_rcv</b> function.
 </p>
+<pre>
+int ip_rcv(struct sk_buff *skb, struct net_device *dev, ...)
+ 
+{
+ 
+struct iphdr *iph;
+ 
+u32 len;
+ 
+[...]
+ 
+iph = ip_hdr(skb);
+ 
+[...]
+ 
+if (iph->ihl < 5 || iph->version != 4)
+ 
+goto inhdr_error;
+ 
+ 
+ 
+if (!pskb_may_pull(skb, iph->ihl*4))
+ 
+goto inhdr_error;
+ 
+ 
+ 
+iph = ip_hdr(skb);
+ 
+ 
+ 
+if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
+ 
+goto inhdr_error;
+ 
+ 
+ 
+len = ntohs(iph->tot_len);
+ 
+if (skb->len < len) {
+ 
+IP_INC_STATS_BH(dev_net(dev), IPSTATS_MIB_INTRUNCATEDPKTS);
+ 
+goto drop;
+ 
+} else if (len < (iph->ihl*4))
+ 
+goto inhdr_error;
+ 
+[...]
+ 
+return NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING, skb, dev, NULL,
+ 
+ip_rcv_finish);
+ 
+[...] ===>
+ 
+int ip_local_deliver(struct sk_buff *skb)
+ 
+[...]
+ 
+if (ip_hdr(skb)->frag_off & htons(IP_MF | IP_OFFSET)) {
+ 
+if (ip_defrag(skb, IP_DEFRAG_LOCAL_DELIVER))
+ 
+return 0;
+ 
+}
+ 
+ 
+ 
+return NF_HOOK(NFPROTO_IPV4, NF_INET_LOCAL_IN, skb, skb->dev, NULL,
+ 
+ip_local_deliver_finish);
+ 
+[...] ===>
+ 
+ 
+ 
+ 
+ 
+static int ip_local_deliver_finish(struct sk_buff *skb)
+ 
+[...]
+ 
+__skb_pull(skb, ip_hdrlen(skb));
+ 
+[...]
+ 
+int protocol = ip_hdr(skb)->protocol;
+ 
+int hash, raw;
+ 
+const struct net_protocol *ipprot;
+ 
+[...]
+ 
+hash = protocol & (MAX_INET_PROTOS - 1);
+ 
+ipprot = rcu_dereference(inet_protos[hash]);
+ 
+if (ipprot != NULL) {
+ 
+[...]
+ 
+ret = ipprot->handler(skb);
+ 
+[...] ===>
+ 
+ 
+ 
+static const struct net_protocol tcp_protocol = {
+ 
+.handler = tcp_v4_rcv,
+ 
+[...]
+ 
+};
+</pre>
+<hr>
+<p>
+The <b>ip_rcv</b> function executes tasks required by the IP layers. It examines packets such as the length and header checksum. After passing through the netfilter code, it performs the <b>ip_local_deliver</b> function. If required, it assembles IP fragments. Then, it calls <b>ip_local_deliver_finish</b> through the netfilter code. The <b>ip_local_deliver_finish</b> function removes the IP header by using the <b>__skb_pull</b> and then searches the upper protocol whose value is identical to the IP header protocol value. Similar to the <b>Ptype_base</b>, each transport protocol registers its own <b>net_protocol</b> structure in <b>inet_protos</b>. IPv4 TCP uses <b>tcp_protocol</b> and calls <b>tcp_v4_rcv</b> that has been registered as a handler.<br>
+
+When packets come into the TCP layer, the packet processing flow varies depending on the TCP status and the packet type. Here, we will see the packet processing procedure when the expected next data packet has been received in the ESTABLISHED status of the TCP connection. This path is frequently executed by the server receiving data when there is no packet loss or out-of-order delivery.
+</p>
+<pre>
+int tcp_v4_rcv(struct sk_buff *skb)
+ 
+{
+ 
+const struct iphdr *iph;
+ 
+struct tcphdr *th;
+ 
+struct sock *sk;
+ 
+[...]
+ 
+th = tcp_hdr(skb);
+ 
+ 
+ 
+if (th->doff < sizeof(struct tcphdr) / 4)
+ 
+goto bad_packet;
+ 
+if (!pskb_may_pull(skb, th->doff * 4))
+ 
+goto discard_it;
+ 
+[...]
+ 
+th = tcp_hdr(skb);
+ 
+iph = ip_hdr(skb);
+ 
+TCP_SKB_CB(skb)->seq = ntohl(th->seq);
+ 
+TCP_SKB_CB(skb)->end_seq = (TCP_SKB_CB(skb)->seq + th->syn + th->fin +
+ 
+skb->len - th->doff * 4);
+ 
+TCP_SKB_CB(skb)->ack_seq = ntohl(th->ack_seq);
+ 
+TCP_SKB_CB(skb)->when = 0;
+ 
+TCP_SKB_CB(skb)->flags = iph->tos;
+ 
+TCP_SKB_CB(skb)->sacked = 0;
+ 
+ 
+ 
+sk = __inet_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest);
+ 
+[...]
+ 
+ret = tcp_v4_do_rcv(sk, skb);
+</pre>
+<hr>
+<p>
+First, the <b>tcp_v4_rcv</b> function validates the received packets. When the header size is larger than the data offset <b>(th->doff < sizeof(struct tcphdr) / 4)</b>, it is the header error. And then<b> __inet_lookup_skb</b> is called to look for the connection where the packet belongs from the TCP connection hash table. From the sock structure found, all required structures such as <b>tcp_sock</b> and socket can be got.
+</p>
+<hr>
+<pre>
+int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
+ 
+[...]
+ 
+if (sk->sk_state == TCP_ESTABLISHED) { /* Fast path */
+ 
+sock_rps_save_rxhash(sk, skb->rxhash);
+ 
+if (tcp_rcv_established(sk, skb, tcp_hdr(skb), skb->len)) {
+ 
+[...] ===>
+ 
+int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
+ 
+[...]
+ 
+/*
+ 
+* Header prediction.
+ 
+*/
+ 
+if ((tcp_flag_word(th) & TCP_HP_BITS) == tp->pred_flags &&
+ 
+ 
+ 
+TCP_SKB_CB(skb)->seq == tp->rcv_nxt &&
+ 
+ 
+ 
+!after(TCP_SKB_CB(skb)->ack_seq, tp->snd_nxt))) {
+ 
+[...]
+ 
+if ((int)skb->truesize > sk->sk_forward_alloc)
+ 
+goto step5;
+ 
+ 
+ 
+NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPHPHITS);
+ 
+ 
+ 
+/* Bulk data transfer: receiver */
+ 
+__skb_pull(skb, tcp_header_len);
+ 
+__skb_queue_tail(&sk->sk_receive_queue, skb);
+ 
+skb_set_owner_r(skb, sk);
+ 
+tp->rcv_nxt = TCP_SKB_CB(skb)->end_seq;
+ 
+[...]
+ 
+if (!copied_early || tp->rcv_nxt != tp->rcv_wup)
+ 
+__tcp_ack_snd_check(sk, 0);
+ 
+[...]
+ 
+step5:
+ 
+if (th->ack && tcp_ack(sk, skb, FLAG_SLOWPATH) < 0)
+ 
+goto discard;
+ 
+ 
+ 
+tcp_rcv_rtt_measure_ts(sk, skb);
+ 
+ 
+ 
+/* Process urgent data. */
+ 
+tcp_urg(sk, skb, th);
+ 
+ 
+ 
+/* step 7: process the segment text */
+ 
+tcp_data_queue(sk, skb);
+ 
+ 
+ 
+tcp_data_snd_check(sk);
+ 
+tcp_ack_snd_check(sk);
+ 
+return 0;
+ 
+[...]
+ 
+}
+</pre>
+<p>
+The actual protocol is executed from the tcp_v4_do_rcv function. If the TCP is in the ESTABLISHED status, tcp_rcv_esablished is called. Processing of the ESTABLISHED status is separately handled and optimized since it is the most common status. The tcp_rcv_established first executes the header prediction code. The header prediction is also quickly processed to detect in the common state. The common case here is that there is no data to transmit and the received data packet is the packet that must be received next time, i.e., the sequence number is the sequence number that the receiving TCP expects. In this case, the procedure is completed by adding the data to the socket buffer and then transmitting ACK.
+<br>
+Go forward and you will see the sentence comparing truesize with sk_forward_alloc. It is to check whether there is any free space in the receive socket buffer to add new packet data. If there is, header prediction is "hit" (prediction succeeded). Then __skb_pull is called to remove the TCP header. After that, __skb_queue_tail is called to add the packet to the receive socket buffer. Finally, __tcp_ack_snd_check is called for transmitting ACK if necessary. In this way, packet processing is completed.
+<br>
+If there is not enough free space, a slow path is executed. The tcp_data_queue function newly allocates the buffer space and adds the data packet to the socket buffer. At this time, the receive socket buffer size is automatically increased if possible. Different from the quick path, tcp_data_snd_check is called to transmit a new data packet if possible. Finally, tcp_ack_snd_check is called to create and transmit the ACK packet if necessary.
+<br>
+The amount of code executed by the two paths is not much. This is accomplished by optimizing the common case. In other words, it means that the uncommon case will be processed significantly more slowly. The out-of-order delivery is one of the uncommon cases.
+</p>
+<hr>
