@@ -13,6 +13,7 @@ DHCP is not a routable protocol, nor is it a secure one. DHCP is limited to a sp
 
 DHCP lacks any built-in mechanism that would allow clients and servers to authenticate each other. Both are vulnerable to deception (one computer pretending to be another) and to attack, where rogue clients can exhaust a DHCP server's IP address pool.</p>
 <br>
+<hr>
 <h2>Static vs. dynamic DHCP leases</h2>
 <p>With dynamic DHCP, a client does not own the IP address assigned to it but instead "leases" it for a period of time. Each time a device with a dynamic IP address is powered up, it must communicate with the DHCP server to lease another IP address. Wireless devices are examples of clients that are assigned dynamic IP addresses when they connect to a network.
 
@@ -20,3 +21,11 @@ Devices assigned static IP addresses have permanent IP addresses and are used fo
 
 Under a dynamic DHCP setup, a client may also have to perform certain activities that lead to terminating its IP address and then reconnecting to the network using another IP address. DHCP lease times can vary depending on how long a user is likely to need an internet connection at a particular location. Devices release their IP addresses when their DHCP leases expire and then request a renewal from the DHCP server if they are staying online. The DHCP server may assign a new address rather than renewing an old one.</p>
 <br>
+<p>
+<b>The typical dynamic DHCP lease cycle is as follows:<b>
+
+  <li>  A client acquires an IP address lease through allocation process of requesting one from the DHCP server.</li>
+   <li> If a client already has an IP address from an existing lease, it will need to refresh its IP address when it reboots after being shut down and will contact the DHCP server to have an IP address reallocated.</li>
+  <li>  Once a lease is active, the client is said to be bound to the lease and to the address.</li>
+  <li>  Once the lease has expired, a client will contact the server that initially granted the least to renew it so it can keep using its IP address.</li>
+   <li> If a client is moving to a different network, its dynamic IP address will be terminated and it will request a new IP address from the DHCP server of the new network</li>
