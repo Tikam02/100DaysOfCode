@@ -13,4 +13,4 @@ Networking and Socket Programming
 <h2>Socket Programming</h2>
 <li>Sever/Client</li>
 <li>TCP/UDP</li>
-<h2>Prtocol Designing</h2>
+<h2>Protocol Designing</h2>
