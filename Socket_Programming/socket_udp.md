@@ -28,4 +28,4 @@ assigned to it. So, as you might expect, the packet’s destination address also
 the socket’s port number.
 </br>
 </p>
-<img src="/img/udp.png">
+<img src="img/udp.png">
