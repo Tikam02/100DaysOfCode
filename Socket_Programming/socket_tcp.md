@@ -1,6 +1,6 @@
 <h1>Socket Programming With TCP</h1>
 <hr>
-<p>
+<p><font face="verdana">
 Unlike UDP, TCP is a connection-oriented protocol. This means that before the client
 and server can start to send data to each other, they first need to handshake and estab-
 lish a TCP connection. One end of the TCP connection is attached to the client socket
@@ -50,3 +50,4 @@ ming with TCP: The client sends one line of data to the server, the server capit
 the line and sends it back to the client.
 <img src="img/tcp2.png">
 </p>
+  </font>
