@@ -22,10 +22,11 @@ Devices assigned static IP addresses have permanent IP addresses and are used fo
 Under a dynamic DHCP setup, a client may also have to perform certain activities that lead to terminating its IP address and then reconnecting to the network using another IP address. DHCP lease times can vary depending on how long a user is likely to need an internet connection at a particular location. Devices release their IP addresses when their DHCP leases expire and then request a renewal from the DHCP server if they are staying online. The DHCP server may assign a new address rather than renewing an old one.</p>
 <br>
 <p>
-<b>The typical dynamic DHCP lease cycle is as follows:<b>
+<b>The typical dynamic DHCP lease cycle is as follows:</b>
 
   <li>  A client acquires an IP address lease through allocation process of requesting one from the DHCP server.</li>
    <li> If a client already has an IP address from an existing lease, it will need to refresh its IP address when it reboots after being shut down and will contact the DHCP server to have an IP address reallocated.</li>
   <li>  Once a lease is active, the client is said to be bound to the lease and to the address.</li>
   <li>  Once the lease has expired, a client will contact the server that initially granted the least to renew it so it can keep using its IP address.</li>
    <li> If a client is moving to a different network, its dynamic IP address will be terminated and it will request a new IP address from the DHCP server of the new network</li>
+   </p>
